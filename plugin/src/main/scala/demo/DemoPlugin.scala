@@ -1,36 +1,44 @@
 package demo
 
+import scala.tools.nsc.io.VirtualFile
+import scala.tools.nsc.util.BatchSourceFile
 import scala.tools.nsc.{ Global, Phase }
 import scala.tools.nsc.plugins.{ Plugin, PluginComponent }
 
 class DemoPlugin(val global: Global) extends Plugin {
   import global._
 
-  val name = "demo-plugin"
-  val description = "Enforces coding standards"
+  override def init(options: List[String],  error: String => Unit): Boolean = true
+
+  val name = "demo"
+  val description = "a plugin"
   val components = List[PluginComponent](DemoComponent)
 
   private object DemoComponent extends PluginComponent {
+
     val global = DemoPlugin.this.global
     import global._
 
-    override val runsAfter = List("erasure")
+    override val runsAfter = List("parser")
+    override val runsBefore = List("namer")
 
     val phaseName = "Demo"
 
-    override def newPhase(prev: Phase): StdPhase = new StdPhase(prev) {
-      override def apply(unit: CompilationUnit) {
-        new DemoTraverser(unit) traverse unit.body
+    override def newPhase(prev: Phase) = new GlobalPhase(prev) {
+      override def run() = {
+        val code = "object Hello"
+        val virtualFile = new VirtualFile(name) {
+          override def file = new java.io.File(".")
+        }
+        val sourceFile = new BatchSourceFile(virtualFile, code)
+        val unit = new CompilationUnit(sourceFile)
+        unit.body = global.newUnitParser(code).parse()
+        global.currentRun.compileLate(unit)
       }
-    }
 
-    class DemoTraverser(unit: CompilationUnit) extends Traverser {
-      override def traverse(tree: Tree): Unit = tree match {
-        case New(tpt) if afterTyper(tpt.tpe.typeSymbol.isDerivedValueClass) =>
-          unit.warning(tree.pos, s"Value class `${tpt.tpe.typeSymbol.fullName}` instantiated!")
-        case _ =>
-          super.traverse(tree)
-      }
+      def name: String = phaseName
+
+      def apply(unit: global.CompilationUnit): Unit = {}
     }
   }
 }
